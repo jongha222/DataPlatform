@@ -11,7 +11,11 @@
   },
   "dependencies": {
     "react": "18.2.0",
-    "react-native": "0.74.2"
+    "react-native": "0.74.2",
+    "react-native-geolocation-service": "^5.3.1",
+    "react-native-permissions": "^4.1.5",
+    "react-native-sensors": "^7.3.6",
+    "rxjs": "^7.8.1"
   },
   "devDependencies": {
     "@babel/core": "^7.20.0",
