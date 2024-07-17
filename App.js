@@ -1,5 +1,5 @@
-import React, {useState, useEffect} from 'react';
-import {SafeAreaView, StyleSheet, View, Text} from 'react-native';
+import React, {useState, useEffect, useCallback, useRef} from 'react';
+import {SafeAreaView, StyleSheet, View, Text, Switch} from 'react-native';
 import {
   accelerometer,
   gyroscope,
@@ -11,147 +11,140 @@ import Geolocation from 'react-native-geolocation-service';
 import {map} from 'rxjs/operators';
 
 const App = () => {
-  const [accelerometerData, setAccelerometerData] = useState({
-    type: 'accelerometer',
-    x: 0,
-    y: 0,
-    z: 0,
-    timestamp: '',
-  });
-  const [gyroscopeData, setGyroscopeData] = useState({
-    type: 'gyroscope',
-    x: 0,
-    y: 0,
-    z: 0,
-    timestamp: '',
-  });
-  const [magnetometerData, setMagnetometerData] = useState({
-    type: 'magnetometer',
-    x: 0,
-    y: 0,
-    z: 0,
-    timestamp: '',
-  });
-  const [location, setLocation] = useState({
-    type: 'gps',
-    latitude: 0,
-    longitude: 0,
-    timestamp: '',
+  const [sensorData, setSensorData] = useState({
+    accelerometer: {x: 0, y: 0, z: 0, timestamp: ''},
+    gyroscope: {x: 0, y: 0, z: 0, timestamp: ''},
+    magnetometer: {x: 0, y: 0, z: 0, timestamp: ''},
+    gps: {latitude: 0, longitude: 0, timestamp: ''},
   });
 
-  const sendDataToBackend = sensorData => {
-    fetch('http://your-backend-url/sensor-data', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(sensorData),
-    })
-      .then(response => {
-        if (response.ok) {
-          console.log('Data sent successfully');
-        } else {
-          console.error('Error sending data');
-        }
-      })
-      .catch(error => {
-        console.error('Error:', error);
-      });
+  const [isEnabled, setIsEnabled] = useState({
+    accelerometer: false,
+    gyroscope: false,
+    magnetometer: false,
+    gps: false,
+  });
+
+  const subscriptions = useRef({
+    accelerometer: null,
+    gyroscope: null,
+    magnetometer: null,
+    gps: null,
+  });
+
+  const setupSensor = useCallback((sensorType, sensorObservable, stateKey) => {
+    setUpdateIntervalForType(sensorType, 1000);
+    const subscription = sensorObservable
+      .pipe(map(data => ({...data, timestamp: new Date().toISOString()})))
+      .subscribe(
+        data => {
+          setSensorData(prevData => ({
+            ...prevData,
+            [stateKey]: {...data, timestamp: new Date().toISOString()},
+          }));
+        },
+        error => console.log(`${stateKey} is not available`),
+      );
+
+    subscriptions.current[stateKey] = subscription;
+  }, []);
+
+  const handleToggle = (sensorType, sensorName, sensorObservable) => {
+    if (isEnabled[sensorName]) {
+      if (subscriptions.current[sensorName]) {
+        subscriptions.current[sensorName].unsubscribe();
+        subscriptions.current[sensorName] = null;
+      }
+      setIsEnabled(prev => ({...prev, [sensorName]: false}));
+    } else {
+      setIsEnabled(prev => ({...prev, [sensorName]: true}));
+      if (sensorName !== 'gps') {
+        setupSensor(sensorType, sensorObservable, sensorName);
+      } else {
+        const gpsSubscription = Geolocation.watchPosition(
+          position => {
+            const {latitude, longitude} = position.coords;
+            const timestamp = new Date().toISOString();
+            const gpsData = {latitude, longitude, timestamp};
+            setSensorData(prevData => ({
+              ...prevData,
+              gps: {...gpsData, timestamp},
+            }));
+          },
+          error => console.log('GPS is not available'),
+          {enableHighAccuracy: true, distanceFilter: 0, interval: 1000},
+        );
+        subscriptions.current.gps = {
+          unsubscribe: () => Geolocation.clearWatch(gpsSubscription),
+        };
+      }
+    }
   };
 
   useEffect(() => {
-    setUpdateIntervalForType(SensorTypes.accelerometer, 1000);
-    setUpdateIntervalForType(SensorTypes.gyroscope, 1000);
-    setUpdateIntervalForType(SensorTypes.magnetometer, 1000);
-
-    const accelerometerSubscription = accelerometer
-      .pipe(
-        map(data => ({
-          type: 'accelerometer',
-          ...data,
-          timestamp: new Date().toISOString(),
-        })),
-      )
-      .subscribe(
-        data => {
-          setAccelerometerData(data);
-          sendDataToBackend(data);
-        },
-        error => console.log('Accelerometer is not available'),
-      );
-
-    const gyroscopeSubscription = gyroscope
-      .pipe(
-        map(data => ({
-          type: 'gyroscope',
-          ...data,
-          timestamp: new Date().toISOString(),
-        })),
-      )
-      .subscribe(
-        data => {
-          setGyroscopeData(data);
-          sendDataToBackend(data);
-        },
-        error => console.log('Gyroscope is not available'),
-      );
-
-    const magnetometerSubscription = magnetometer
-      .pipe(
-        map(data => ({
-          type: 'magnetometer',
-          ...data,
-          timestamp: new Date().toISOString(),
-        })),
-      )
-      .subscribe(
-        data => {
-          setMagnetometerData(data);
-          sendDataToBackend(data);
-        },
-        error => console.log('Magnetometer is not available'),
-      );
-
-    const locationSubscription = setInterval(() => {
-      Geolocation.getCurrentPosition(
-        position => {
-          const {latitude, longitude} = position.coords;
-          const timestamp = new Date().toISOString();
-          const locationData = {type: 'gps', latitude, longitude, timestamp};
-          setLocation(locationData);
-          sendDataToBackend(locationData);
-        },
-        error => console.log('Error getting location', error),
-        {enableHighAccuracy: true, timeout: 15000, maximumAge: 10000},
-      );
-    }, 10000);
-
     return () => {
-      accelerometerSubscription.unsubscribe();
-      gyroscopeSubscription.unsubscribe();
-      magnetometerSubscription.unsubscribe();
-      clearInterval(locationSubscription);
+      Object.values(subscriptions.current).forEach(subscription => {
+        if (subscription) subscription.unsubscribe();
+      });
     };
   }, []);
+
+  const formatSensorData = data => JSON.stringify(data, null, 2);
 
   return (
     <SafeAreaView style={styles.container}>
       <Text style={styles.title}>Sensor Data</Text>
+
       <View style={styles.dataContainer}>
-        <Text style={styles.subtitle}>Accelerometer Data</Text>
-        <Text>{JSON.stringify(accelerometerData, null, 2)}</Text>
+        <Text style={styles.subtitle}>Accelerometer</Text>
+        <Switch
+          onValueChange={() =>
+            handleToggle(
+              SensorTypes.accelerometer,
+              'accelerometer',
+              accelerometer,
+            )
+          }
+          value={isEnabled.accelerometer}
+        />
+        {isEnabled.accelerometer && (
+          <Text>{formatSensorData(sensorData.accelerometer)}</Text>
+        )}
       </View>
+
       <View style={styles.dataContainer}>
-        <Text style={styles.subtitle}>Gyroscope Data</Text>
-        <Text>{JSON.stringify(gyroscopeData, null, 2)}</Text>
+        <Text style={styles.subtitle}>Gyroscope</Text>
+        <Switch
+          onValueChange={() =>
+            handleToggle(SensorTypes.gyroscope, 'gyroscope', gyroscope)
+          }
+          value={isEnabled.gyroscope}
+        />
+        {isEnabled.gyroscope && (
+          <Text>{formatSensorData(sensorData.gyroscope)}</Text>
+        )}
       </View>
+
       <View style={styles.dataContainer}>
-        <Text style={styles.subtitle}>Magnetometer Data</Text>
-        <Text>{JSON.stringify(magnetometerData, null, 2)}</Text>
+        <Text style={styles.subtitle}>Magnetometer</Text>
+        <Switch
+          onValueChange={() =>
+            handleToggle(SensorTypes.magnetometer, 'magnetometer', magnetometer)
+          }
+          value={isEnabled.magnetometer}
+        />
+        {isEnabled.magnetometer && (
+          <Text>{formatSensorData(sensorData.magnetometer)}</Text>
+        )}
       </View>
+
       <View style={styles.dataContainer}>
-        <Text style={styles.subtitle}>GPS Data</Text>
-        <Text>{JSON.stringify(location, null, 2)}</Text>
+        <Text style={styles.subtitle}>GPS</Text>
+        <Switch
+          onValueChange={() => handleToggle('gps', 'gps', Geolocation)}
+          value={isEnabled.gps}
+        />
+        {isEnabled.gps && <Text>{formatSensorData(sensorData.gps)}</Text>}
       </View>
     </SafeAreaView>
   );
@@ -164,9 +157,19 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     backgroundColor: '#F5FCFF',
   },
-  title: {fontSize: 20, marginBottom: 20},
-  subtitle: {fontSize: 18, marginTop: 20, marginBottom: 10},
-  dataContainer: {alignItems: 'center', marginBottom: 20},
+  title: {
+    fontSize: 20,
+    marginBottom: 20,
+  },
+  subtitle: {
+    fontSize: 18,
+    marginTop: 20,
+    marginBottom: 10,
+  },
+  dataContainer: {
+    alignItems: 'center',
+    marginBottom: 20,
+  },
 });
 
 export default App;
