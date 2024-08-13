@@ -1,13 +1,5 @@
 import React, {useState, useEffect, useCallback, useRef} from 'react';
-import {
-  SafeAreaView,
-  StyleSheet,
-  View,
-  Text,
-  Switch,
-  Alert,
-  TouchableOpacity,
-} from 'react-native';
+import {SafeAreaView, StyleSheet, View, Text, Switch, TouchableOpacity} from 'react-native';
 import {NavigationContainer} from '@react-navigation/native';
 import {createBottomTabNavigator} from '@react-navigation/bottom-tabs';
 import {createStackNavigator} from '@react-navigation/stack';
@@ -157,34 +149,18 @@ const SensorConsentScreen = () => {
   };
 
   useEffect(() => {
-    const interval = setInterval(() => {
-      Object.keys(isEnabled).forEach(key => {
-        if (isEnabled[key] && sensorData[key].timestamp) {
-          sendSensorData(key, sensorData[key]).then(result =>
-            Alert.alert(
-              result === 'success' ? 'Success' : 'Error',
-              result === 'success'
-                ? 'Data sent successfully'
-                : `Error sending data: ${result}`,
-            )
-          );
-        }
-      });
-    }, 5000);
-
     return () => {
-      clearInterval(interval);
       Object.values(subscriptions.current).forEach(subscription => {
         if (subscription) subscription.unsubscribe();
       });
     };
-  }, [isEnabled, sensorData]);
+  }, []);
 
   const formatSensorData = data => JSON.stringify(data, null, 2);
 
   return (
     <SafeAreaView style={styles.container}>
-      <Text style={styles.title}>개인정보 제공 동의</Text>
+      <Text style={styles.title}>Sensor Data</Text>
 
       <View style={styles.dataContainer}>
         <Text style={styles.subtitle}>Accelerometer</Text>
@@ -293,13 +269,21 @@ const AppContainer = () => {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    justifyContent: 'flex-start',
+    justifyContent: 'center',
     alignItems: 'center',
     backgroundColor: '#F5FCFF',
-    paddingTop: 50,
   },
   title: {
     fontSize: 20,
+    marginBottom: 20,
+  },
+  subtitle: {
+    fontSize: 18,
+    marginTop: 20,
+    marginBottom: 10,
+  },
+  dataContainer: {
+    alignItems: 'center',
     marginBottom: 20,
   },
   serviceDashboard: {
@@ -337,15 +321,6 @@ const styles = StyleSheet.create({
   },
   profileActionButton: {
     alignItems: 'center',
-  },
-  subtitle: {
-    fontSize: 18,
-    marginTop: 20,
-    marginBottom: 10,
-  },
-  dataContainer: {
-    alignItems: 'center',
-    marginBottom: 20,
   },
 });
 
